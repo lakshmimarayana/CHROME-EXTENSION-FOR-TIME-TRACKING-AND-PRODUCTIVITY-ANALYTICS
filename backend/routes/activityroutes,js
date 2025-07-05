@@ -1,0 +1,121 @@
+const express = require('express');
+const UserActivity = require('../models/UserActivity');
+const router = express.Router();
+
+// Helper to normalize date to start of day
+const getStartOfDay = (date) => {
+    const d = new Date(date);
+    d.setUTCHours(0, 0, 0, 0); // Use UTC to avoid timezone issues with daily aggregation
+    return d;
+};
+
+// POST endpoint to receive tracking data from extension
+router.post('/track', async (req, res) => {
+    const { userId, timestamp, dailyData } = req.body;
+
+    if (!userId || !dailyData) {
+        return res.status(400).json({ message: 'Missing userId or dailyData' });
+    }
+
+    const activityDate = getStartOfDay(timestamp);
+
+    try {
+        let userActivity = await UserActivity.findOne({ userId, date: activityDate });
+
+        if (!userActivity) {
+            userActivity = new UserActivity({ userId, date: activityDate });
+        }
+
+        // Update existing or add new website data
+        for (const domain in dailyData) {
+            const { total, productive, unproductive } = dailyData[domain];
+            const existing = userActivity.data.get(domain) || { totalTime: 0, productiveTime: 0, unproductiveTime: 0 };
+
+            existing.totalTime += total;
+            existing.productiveTime += productive;
+            existing.unproductiveTime += unproductive;
+
+            userActivity.data.set(domain, existing);
+        }
+
+        await userActivity.save();
+        res.status(200).json({ message: 'Tracking data saved successfully' });
+    } catch (error) {
+        console.error('Error saving tracking data:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+// GET endpoint to retrieve daily activity for a user
+router.get('/activity/:userId/:date?', async (req, res) => {
+    const { userId } = req.params;
+    const queryDate = req.params.date ? getStartOfDay(new Date(req.params.date)) : getStartOfDay(Date.now());
+
+    try {
+        const userActivity = await UserActivity.findOne({ userId, date: queryDate });
+        if (!userActivity) {
+            return res.status(404).json({ message: 'No activity found for this date.' });
+        }
+        // Convert Map to plain object for easier consumption by frontend
+        const dataObject = {};
+        userActivity.data.forEach((value, key) => {
+            dataObject[key] = value;
+        });
+        res.status(200).json({ userId: userActivity.userId, date: userActivity.date, data: dataObject });
+    } catch (error) {
+        console.error('Error fetching activity data:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+// GET endpoint for weekly productivity report
+router.get('/report/weekly/:userId', async (req, res) => {
+    const { userId } = req.params;
+    const now = new Date();
+    const startOfWeek = getStartOfDay(new Date(now.setDate(now.getDate() - now.getDay()))); // Sunday as start of week
+
+    try {
+        const weeklyActivities = await UserActivity.find({
+            userId,
+            date: { $gte: startOfWeek, $lte: getStartOfDay(Date.now()) } // Activities from start of week to today
+        }).sort({ date: 1 }); // Sort by date ascending
+
+        if (weeklyActivities.length === 0) {
+            return res.status(404).json({ message: 'No activity found for this week.' });
+        }
+
+        const weeklyReport = {
+            totalTime: 0,
+            productiveTime: 0,
+            unproductiveTime: 0,
+            neutralTime: 0,
+            websiteBreakdown: {} // Aggregated time per website across the week
+        };
+
+        weeklyActivities.forEach(dayActivity => {
+            dayActivity.data.forEach((siteData, domain) => {
+                if (!weeklyReport.websiteBreakdown[domain]) {
+                    weeklyReport.websiteBreakdown[domain] = { total: 0, productive: 0, unproductive: 0 };
+                }
+                weeklyReport.websiteBreakdown[domain].total += siteData.totalTime;
+                weeklyReport.websiteBreakdown[domain].productive += siteData.productiveTime;
+                weeklyReport.websiteBreakdown[domain].unproductive += siteData.unproductiveTime;
+
+                weeklyReport.totalTime += siteData.totalTime;
+                weeklyReport.productiveTime += siteData.productiveTime;
+                weeklyReport.unproductiveTime += siteData.unproductiveTime;
+            });
+        });
+
+        // Calculate neutral time
+        weeklyReport.neutralTime = weeklyReport.totalTime - weeklyReport.productiveTime - weeklyReport.unproductiveTime;
+
+        res.status(200).json(weeklyReport);
+
+    } catch (error) {
+        console.error('Error generating weekly report:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+module.exports = router;
