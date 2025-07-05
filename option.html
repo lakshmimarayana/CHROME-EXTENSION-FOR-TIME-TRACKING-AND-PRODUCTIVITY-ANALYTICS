@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Productivity Tracker Settings</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Settings</h2>
+
+        <section>
+            <h3>Website Categories</h3>
+            <p>Define which websites are productive or unproductive for you.</p>
+            <div class="category-section">
+                <h4>Productive Websites (one per line)</h4>
+                <textarea id="productive-sites-input"></textarea>
+            </div>
+            <div class="category-section">
+                <h4>Unproductive Websites (one per line)</h4>
+                <textarea id="unproductive-sites-input"></textarea>
+            </div>
+            <button id="save-categories">Save Categories</button>
+            <p id="category-status" class="status-message"></p>
+        </section>
+
+        <section>
+            <h3>Backend Integration</h3>
+            <p>Connect your extension to your personal dashboard.</p>
+            <label for="user-id-input">Your User ID (from dashboard):</label>
+            <input type="text" id="user-id-input" placeholder="Enter your unique user ID">
+            <button id="save-user-id">Save User ID</button>
+            <p id="user-id-status" class="status-message"></p>
+        </section>
+    </div>
+    <script src="options.js"></script>
+</body>
+</html>
